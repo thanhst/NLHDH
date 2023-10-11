@@ -1,0 +1,102 @@
+Đoạn code trên tạo 5 luồng chạy song song , không hề có phân cấp cho các luồng sử dụng dữ liệu in ra màn hình.
+#include <Windows.h>
+#include <iostream>
+#include <vector>
+using namespace std;
+//Khai báo thư viện . Lấy thư viện windows.h.
+
+#define NUM_THREADS 5
+//định nghĩa số lượng thread.
+
+DWORD WINAPI ThreadFunc(LPVOID lpParam)//Khai báo một hàm WINAPI DWORD tên ThreadFunc lấy tham số dạng LPVOID là một biến con trỏ không định kiểu.
+{
+    intptr_t threadId = reinterpret_cast<intptr_t>(lpParam); // chuyển đổi lpParam từ dạng con trỏ không kiểu thành kiểu số nguyên không dấu trả về số bit địa chỉ của con trỏ.
+    cout << "Thread " << threadId << " is running." << endl;// hiển thị xem cái luồng nào đang chạy
+    cout << "Counting numbers from 0 to " << threadId << ":" << endl;// thông báo rằng luồng này sẽ đếm từ 1 cho đến số threadId
+    for (intptr_t i = 0; i <= threadId; i++)
+    {
+        cout << i << " ";
+    }//vòng for chạy đếm số
+    cout << endl;
+    cout << "Thread " << threadId << " is exiting." << endl;//  thông báo kết thúc.
+    return 0;
+}
+
+int main()
+{
+    vector<HANDLE> threadHandles;// khởi tạo một vector threadHandles kiểu HANDLE;
+    vector<intptr_t> threadIds; // khởi tạo vector threadIds kiểu intptr_t số nguyên không dấu;
+    for (intptr_t i = 1; i <= NUM_THREADS; i++) // tạo thread;
+    {
+        threadIds.push_back(i); // cho cái tên thread vào vector
+        HANDLE hThread = CreateThread(NULL, 0, ThreadFunc, reinterpret_cast<LPVOID>(i), 0, NULL); //tạo thread với chế độ bảo mật là null , SIZE_T =0, hàm luồng thực thi là hàm ThreadFunc, truyền kiểu dữ liệu cho luồng là con trỏ không kiểu i và không nhận truyền dữ liệu Null. 
+        if (hThread == NULL)// không tạo thành công thì báo lỗi
+        {
+            cout << "Failed to create thread " << i << endl;
+            return 1;
+        }
+        threadHandles.push_back(hThread);// thêm thread vào trong danh sách vector thread
+    }
+
+    WaitForMultipleObjects(NUM_THREADS, &threadHandles[0],TRUE, INFINITE);// chờ cho tất cả các luồng chạy xong thì đóng handle về 0
+    for (vector<HANDLE>::iterator it = threadHandles.begin(); it != threadHandles.end(); it++)// chạy từ đầu đến cuối cái luồng để đóng handle
+    {
+        CloseHandle(*it);
+    }
+    return 0;
+}
+
+Với hàm này , các hàm sẽ tự ý dùng điều khiển in ra trong màn hình mà không quan tâm gì đến việc hiển thị , chính vì vậy kết quả có dạng như anh1.jpg hoặc là anh2.jpg hoặc nhiều lần khác như vậy , khi mà gọi threadId lúc in ra , có một thread đã hoàn thành , rồi lại một thread nữa hoàn thành do quá trình lập lịch của window làm cho các thread in ra không hề theo thứ tự hay là đang in của thread 1 lại in ra của thread 2-3-4 . Vì thế khi mà chúng ta đặt cho chúng một cái khóa mutex bắt chúng chỉ được sử dụng output display cho một luồng nhất định thì đã không có sự in đè của các luồng nữa , đoạn code như sau : 
+
+------------------------------------------------------------------------------------------------------------------------------------------
+#include <Windows.h>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+#define NUM_THREADS 5
+
+HANDLE displayMutex; khai báo một handle.
+
+DWORD WINAPI ThreadFunc(LPVOID lpParam)
+{
+    intptr_t threadId = reinterpret_cast<intptr_t>(lpParam);
+    WaitForSingleObject(displayMutex, INFINITE); // đặt thêm khóa mutex
+    cout << "Thread " << threadId << " is running." << endl;
+    cout << "Counting numbers from 0 to " << threadId << ":" << endl;
+    for (intptr_t i = 0; i <= threadId; i++)
+    {
+        cout << i << " ";
+    }
+    cout << endl;
+    cout << "Thread " << threadId << " is exiting." << endl;
+    ReleaseMutex(displayMutex);// hủy bỏ khóa khi đã chạy xong.
+    return 0;
+}
+
+int main()
+{
+    vector<HANDLE> threadHandles;
+    vector<intptr_t> threadIds;
+    displayMutex = CreateMutex(NULL, FALSE, NULL); // tạo một mutex
+    for (intptr_t i = 1; i <= NUM_THREADS; i++)
+    {
+        threadIds.push_back(i);
+        HANDLE hThread = CreateThread(NULL, 0, ThreadFunc, reinterpret_cast<LPVOID>(i), 0, NULL);
+        if (hThread == NULL)
+        {
+            cout << "Failed to create thread " << i << endl;
+            return 1;
+        }
+        threadHandles.push_back(hThread);
+    }
+
+    WaitForMultipleObjects(NUM_THREADS, &threadHandles[0],TRUE, INFINITE);
+    for (vector<HANDLE>::iterator it = threadHandles.begin(); it != threadHandles.end(); it++)
+    {
+        CloseHandle(*it);
+    }
+	CloseHandle(displayMutex); đóng mutex sau khi hoàn thành công việc.
+    return 0;
+}
+Mutex có thể hiểu như là việc điều khiển sử dụng dữ liệu của một luồng , tránh việc các luồng song song sử dụng dữ liệu chung gây chồng đè dữ liệu.Kết quả là hình anh3.jpg.Không còn việc ghi đè luồng 1 hay bất cứ luồng nào nữa , các luồng được in ra là không theo thứ tự nhưng cũng không bị ghi đè ( không theo vì chạy xong xong , anh nào chạy xong trước thì dừng ).
